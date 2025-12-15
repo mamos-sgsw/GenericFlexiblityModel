@@ -35,18 +35,19 @@ Efficiency modeling:
 BATTERY ECONOMIC MODEL
 ----------------------
 The BatteryCostModel captures:
-    - Investment cost [CHF/kWh]: Upfront battery cost
-    - Degradation cost [CHF/kWh]: Equivalent cost of cycling wear
+    - Investment cost [CHF/kWh]: Upfront battery cost (amortized via c_inv/n_lifetime)
+    - Variable O&M cost [CHF/kWh]: Usage-dependent maintenance
     - Energy arbitrage: Buy low (charge), sell high (discharge)
 
-Degradation modeling:
-    - Linear degradation: cost_per_cycle * cycles_per_kwh * throughput
-    - Throughput = (P_charge + P_discharge) * dt
-    - Captured via p_int parameter
+Cost components:
+    - Fixed: Investment amortization (handled outside step_cost)
+    - Variable utilization: p_int * throughput (cycling-dependent maintenance)
+    - Energy: Asymmetric buy/sell prices capture arbitrage opportunities
 
-Revenue streams:
-    - Energy arbitrage: (P_discharge - P_charge) * prices
-    - Captured via asymmetric p_E_buy and p_E_sell
+Note on degradation:
+    - Battery degradation is captured via investment cost amortization (c_inv/n_lifetime)
+    - The p_int parameter represents variable O&M, NOT replacement costs
+    - This separates CAPEX-related degradation from OPEX-related maintenance
 
 BATTERY OPERATIONAL MODEL
 --------------------------
@@ -107,6 +108,7 @@ from typing import Callable, Dict, Any, Optional, Tuple
 from flex_model.core.flex_unit import FlexUnit
 from flex_model.core.cost_model import CostModel, TimeDependentValue
 from flex_model.core.flex_asset import FlexAsset
+from flex_model.settings import DT_HOURS
 
 
 class BatteryUnit(FlexUnit):
@@ -293,7 +295,7 @@ class BatteryUnit(FlexUnit):
         value = max(0.0, value)
 
         # Check SOC max constraint
-        max_E_plus = self.C_spec * self.soc_max
+        max_E_plus = self.usable_capacity
         if value > max_E_plus + 1e-6:  # Small tolerance for floating point errors
             raise ValueError(
                 f"E_plus={value:.2f} kWh exceeds maximum {max_E_plus:.2f} kWh "
@@ -340,7 +342,7 @@ class BatteryUnit(FlexUnit):
         value = max(0.0, value)
 
         # Check SOC min constraint
-        max_E_minus = self.C_spec * (1.0 - self.soc_min)
+        max_E_minus = self.usable_capacity
         if value > max_E_minus + 1e-6:
             raise ValueError(
                 f"E_minus={value:.2f} kWh exceeds maximum {max_E_minus:.2f} kWh "
@@ -383,11 +385,13 @@ class BatteryUnit(FlexUnit):
 
         # Charge limit: limited by available capacity (E_minus)
         # Can't charge more than remaining capacity allows
-        P_draw_max = min(P_rated, self.E_minus * 4.0)  # Assume 0.25h time step as max C-rate
+        # P_max = E_available / dt (energy constraint on power)
+        P_draw_max = min(P_rated, self.E_minus / DT_HOURS)
 
         # Discharge limit: limited by stored energy (E_plus)
         # Can't discharge more than stored energy allows
-        P_inject_max = min(P_rated, self.E_plus * 4.0)  # Assume 0.25h time step as max C-rate
+        # P_max = E_available / dt (energy constraint on power)
+        P_inject_max = min(P_rated, self.E_plus / DT_HOURS)
 
         return P_draw_max, P_inject_max
 
@@ -399,53 +403,54 @@ class BatteryUnit(FlexUnit):
         """
         capacity = self.capacity(t=0)  # Use t=0 as current capacity
         if capacity > 0:
-            return self.E_plus / capacity
+            return self.soc_min + self.E_plus / capacity
         return 0.0
 
     def update_state(
         self,
         t: int,
-        dt_hours: float,
-        P_draw_cmd: float,
-        P_inject_cmd: float,
+        P_grid_import: float,
+        P_grid_export: float,
         P_loss: float = 0.0,
         P_gain: float = 0.0,
+        n_timesteps: int = 1,
     ) -> None:
         """
         Update battery state with efficiency and self-discharge.
 
         For a battery, the energy headroom interpretation is:
-            - E_plus: Stored energy available to discharge [kWh]
-            - E_minus: Remaining capacity available to charge [kWh]
+            - E_plus: Stored energy available to export (discharge) [kWh]
+            - E_minus: Remaining capacity available to import (charge) [kWh]
 
-        Charging (P_draw > 0): Increases E_plus, decreases E_minus
-        Discharging (P_inject > 0): Decreases E_plus, increases E_minus
+        Charging (P_grid_import > 0): Increases E_plus, decreases E_minus
+        Discharging (P_grid_export > 0): Decreases E_plus, increases E_minus
 
         Args:
             t: Time index.
-            dt_hours: Time step duration [h].
-            P_draw_cmd: Charging power [kW].
-            P_inject_cmd: Discharging power [kW].
+            P_grid_import: Charging power [kW] (import from grid).
+            P_grid_export: Discharging power [kW] (export to grid).
             P_loss: Additional losses [kW] (added to self-discharge).
             P_gain: Additional gains [kW] (rarely used for batteries).
+            n_timesteps: Number of time steps.
         """
         # Clip commands to be non-negative
-        P_draw = max(0.0, P_draw_cmd)
-        P_inject = max(0.0, P_inject_cmd)
+        P_import = max(0.0, P_grid_import)
+        P_export = max(0.0, P_grid_export)
 
-        self.P_draw = P_draw
-        self.P_inject = P_inject
+        self.P_grid_import = P_import
+        self.P_grid_export = P_export
 
         # Calculate self-discharge loss for this time step
         capacity = self.capacity(t)
         P_self_discharge = capacity * self.self_discharge_per_hour  # [kW]
 
         # Convert powers to energies
-        E_charge_gross = P_draw * dt_hours  # Energy drawn from grid
-        E_discharge_gross = P_inject * dt_hours  # Energy delivered to grid
-        E_self_discharge = P_self_discharge * dt_hours
-        E_loss_external = P_loss * dt_hours
-        E_gain_external = P_gain * dt_hours
+        delta_t = n_timesteps * FlexAsset.dt_hours
+        E_charge_gross = P_import * delta_t  # Energy imported from grid (charging)
+        E_discharge_gross = P_export * delta_t  # Energy exported to grid (discharging)
+        E_self_discharge = P_self_discharge * delta_t
+        E_loss_external = P_loss * delta_t
+        E_gain_external = P_gain * delta_t
 
         # Apply efficiency
         E_charge_net = E_charge_gross * self.efficiency  # Energy actually stored
@@ -506,10 +511,11 @@ class BatteryCostModel(CostModel):
                 Typically small for batteries: 0-2% of CAPEX per year.
 
             p_int:
-                Internal degradation cost [CHF/kWh of throughput].
-                Represents cycling wear and capacity fade.
-                Typical calculation: (replacement_cost / lifetime_cycles) / 2
-                Example: (50000 CHF / 5000 cycles) / 2 = 0.05 CHF/kWh
+                Internal utilization cost [CHF/kWh of throughput].
+                Represents variable O&M costs proportional to usage (cycling wear, etc.).
+                This is separate from degradation, which is captured via investment cost
+                amortization (c_inv / n_lifetime).
+                Example: 0.01-0.05 CHF/kWh for maintenance triggered by cycling
 
             p_E_buy:
                 Energy import price [CHF/kWh] when charging.
@@ -549,36 +555,47 @@ class BatteryCostModel(CostModel):
                 Physical state: {'soc': float, 'E_plus': float, 'E_minus': float}
 
             activation:
-                Operation: {'P_draw': float, 'P_inject': float, 'dt_hours': float}
+                Operation: {'P_grid_import': float, 'P_grid_export': float, 'dt_hours': float}
 
         Returns:
             Total cost [CHF] for this time step.
             Positive = net cost, Negative = net revenue.
 
         Cost components:
-            1. Internal degradation: throughput * p_int(t)
+            1. Internal usage: throughput * p_int(t)
             2. Energy cost: E_net * p_E_buy(t) or E_net * p_E_sell(t)
         """
-        # Extract activation parameters
-        P_draw = activation.get('P_draw', 0.0)
-        P_inject = activation.get('P_inject', 0.0)
-        dt_hours = activation.get('dt_hours', 0.25)
+        # Extract activation parameters (REQUIRED - fail fast if missing)
+        required_keys = {'P_grid_import', 'P_grid_export', 'dt_hours'}
+        missing_keys = required_keys - activation.keys()
+        if missing_keys:
+            raise ValueError(
+                f"Missing required activation parameters: {missing_keys}. "
+                f"Expected keys: {required_keys}"
+            )
+
+        P_import = activation['P_grid_import']
+        P_export = activation['P_grid_export']
+        dt_hours = activation['dt_hours']
 
         # 1. Internal utilization cost (proportional to throughput)
-        throughput_kwh = (P_draw + P_inject) * dt_hours
+        throughput_kwh = (P_import + P_export) * dt_hours
         cost_usage = throughput_kwh * self.p_int(t)
 
-        # 2. Energy cost (buy when charging, sell when discharging)
-        E_net = (P_draw - P_inject) * dt_hours  # Positive = net consumption
+        # 2. Energy cost (buy when importing, sell when exporting)
+        E_net = (P_import - P_export) * dt_hours  # Positive = net import (charging)
 
         if E_net > 0:
-            # Net charging: buying energy
+            # Net import (charging): buying energy
             cost_energy = E_net * self.p_E_buy(t)
         else:
-            # Net discharging: selling energy (revenue is negative cost)
+            # Net export (discharging): selling energy (revenue is negative cost)
             cost_energy = E_net * self.p_E_sell(t)  # E_net is negative, so this is negative
 
         return cost_usage + cost_energy
+
+    # Note: annualized_investment() is inherited from CostModel base class
+    # Note: total_cost() is inherited from CostModel base class
 
 
 class BatteryFlex(FlexAsset):
@@ -606,23 +623,23 @@ class BatteryFlex(FlexAsset):
     def evaluate_operation(
         self,
         t: int,
-        dt_hours: float,
-        P_draw_cmd: float,
-        P_inject_cmd: float,
+        P_grid_import: float,
+        P_grid_export: float,
+        n_timesteps: int = 1,
     ) -> Dict[str, Any]:
         """
         Evaluate proposed battery operation without executing it.
 
         Checks:
-            1. Power limits: P_draw <= P_draw_max, P_inject <= P_inject_max
+            1. Power limits: import/export within rated capacity
             2. Mutual exclusivity: Not charging and discharging simultaneously
             3. SOC limits: Operation doesn't violate soc_min or soc_max
 
         Args:
             t: Time index.
-            dt_hours: Time step duration [h].
-            P_draw_cmd: Proposed charging power [kW].
-            P_inject_cmd: Proposed discharging power [kW].
+            P_grid_import: Proposed charging power [kW] (import from grid).
+            P_grid_export: Proposed discharging power [kW] (export to grid).
+            n_timesteps: Number of time steps.
 
         Returns:
             {
@@ -636,25 +653,26 @@ class BatteryFlex(FlexAsset):
         violations = []
 
         # Get current power limits
-        P_draw_max, P_inject_max = self.unit.power_limits(t)
+        P_import_max, P_export_max = self.unit.power_limits(t)
 
         # Check power limits
-        if P_draw_cmd > P_draw_max + 1e-6:  # Small tolerance for numerical errors
-            violations.append(f"P_draw={P_draw_cmd:.2f} kW exceeds limit {P_draw_max:.2f} kW")
+        if P_grid_import > P_import_max + 1e-6:  # Small tolerance for numerical errors
+            violations.append(f"P_grid_import={P_grid_import:.2f} kW exceeds limit {P_import_max:.2f} kW")
 
-        if P_inject_cmd > P_inject_max + 1e-6:
-            violations.append(f"P_inject={P_inject_cmd:.2f} kW exceeds limit {P_inject_max:.2f} kW")
+        if P_grid_export > P_export_max + 1e-6:
+            violations.append(f"P_grid_export={P_grid_export:.2f} kW exceeds limit {P_export_max:.2f} kW")
 
         # Check mutual exclusivity (can't charge and discharge simultaneously)
-        if P_draw_cmd > 1e-6 and P_inject_cmd > 1e-6:
-            violations.append("Cannot charge and discharge simultaneously")
+        if P_grid_import > 1e-6 and P_grid_export > 1e-6:
+            violations.append("Cannot import and export simultaneously")
 
         # Calculate expected SOC after operation
-        # Charging: E_plus increases by P_draw * dt * eff
-        # Discharging: E_plus decreases by P_inject * dt / eff
+        # Importing (charging): E_plus increases by P_import * dt * eff
+        # Exporting (discharging): E_plus decreases by P_export * dt / eff
+        delta_t = n_timesteps * FlexAsset.dt_hours
         current_soc = self.unit.soc()
-        delta_E = (P_draw_cmd * dt_hours * self.unit.efficiency -
-                   P_inject_cmd * dt_hours / self.unit.efficiency)
+        delta_E = (P_grid_import * delta_t * self.unit.efficiency -
+                   P_grid_export * delta_t / self.unit.efficiency)
         soc_after = current_soc + delta_E / self.unit.capacity(t)
 
         # Check SOC limits
@@ -674,9 +692,9 @@ class BatteryFlex(FlexAsset):
                 'E_minus': self.unit.E_minus,
             }
             activation = {
-                'P_draw': P_draw_cmd,
-                'P_inject': P_inject_cmd,
-                'dt_hours': dt_hours,
+                'P_grid_import': P_grid_import,
+                'P_grid_export': P_grid_export,
+                'dt_hours': delta_t,
             }
             cost = self.cost_model.step_cost(t, flex_state, activation)
         else:
@@ -687,24 +705,24 @@ class BatteryFlex(FlexAsset):
             'cost': cost,
             'violations': violations,
             'soc': soc_after,
-            'throughput': (P_draw_cmd + P_inject_cmd) * dt_hours,
+            'throughput': (P_grid_import + P_grid_export) * delta_t,
         }
 
     def execute_operation(
         self,
         t: int,
-        dt_hours: float,
-        P_draw_cmd: float,
-        P_inject_cmd: float,
+        P_grid_import: float,
+        P_grid_export: float,
+        n_timesteps: int = 1,
     ) -> None:
         """
         Execute battery operation, updating physical state and tracking metrics.
 
         Args:
             t: Time index.
-            dt_hours: Time step duration [h].
-            P_draw_cmd: Charging power [kW] to execute.
-            P_inject_cmd: Discharging power [kW] to execute.
+            P_grid_import: Charging power [kW] to execute (import from grid).
+            P_grid_export: Discharging power [kW] to execute (export to grid).
+            n_timesteps: Number of time steps.
 
         Notes:
             - Caller must ensure operation is feasible before calling.
@@ -714,10 +732,13 @@ class BatteryFlex(FlexAsset):
         # Update physical state
         self.unit.update_state(
             t=t,
-            dt_hours=dt_hours,
-            P_draw_cmd=P_draw_cmd,
-            P_inject_cmd=P_inject_cmd,
+            P_grid_import=P_grid_import,
+            P_grid_export=P_grid_export,
+            n_timesteps=n_timesteps,
         )
+
+        # Calculate total time delta
+        delta_t = n_timesteps * FlexAsset.dt_hours
 
         # Calculate cost for tracking
         flex_state = {
@@ -726,18 +747,18 @@ class BatteryFlex(FlexAsset):
             'E_minus': self.unit.E_minus,
         }
         activation = {
-            'P_draw': P_draw_cmd,
-            'P_inject': P_inject_cmd,
-            'dt_hours': dt_hours,
+            'P_grid_import': P_grid_import,
+            'P_grid_export': P_grid_export,
+            'dt_hours': delta_t,
         }
         cost = self.cost_model.step_cost(t, flex_state, activation)
 
         # Update tracking metrics
-        throughput = (P_draw_cmd + P_inject_cmd) * dt_hours
+        throughput = (P_grid_import + P_grid_export) * delta_t
         self._total_throughput_kwh += throughput
         self._total_cost_eur += cost
 
-        if P_draw_cmd > 1e-6 or P_inject_cmd > 1e-6:
+        if P_grid_import > 1e-6 or P_grid_export > 1e-6:
             self._num_activations += 1
 
     def get_metrics(self) -> Dict[str, Any]:

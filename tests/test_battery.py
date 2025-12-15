@@ -11,6 +11,7 @@ Run tests with: pytest tests/test_battery.py -v
 
 import pytest
 from flex_model.assets.battery import BatteryUnit, BatteryCostModel, BatteryFlex
+from flex_model.settings import DT_HOURS
 
 
 class TestBatteryUnit:
@@ -53,38 +54,38 @@ class TestBatteryUnit:
         battery = BatteryUnit(name="test", capacity_kwh=100, power_kw=50)
         battery.reset_state(E_plus_init=0.0, E_minus_init=100.0)
 
-        P_draw_max, P_inject_max = battery.power_limits(t=0)
+        P_grid_import_max, P_grid_export_max = battery.power_limits(t=0)
 
         # Can charge at full power
-        assert P_draw_max == pytest.approx(50.0, rel=0.1)
+        assert P_grid_import_max == pytest.approx(50.0, rel=0.1)
         # Cannot discharge (no energy stored)
-        assert P_inject_max == pytest.approx(0.0, abs=0.1)
+        assert P_grid_export_max == pytest.approx(0.0, abs=0.1)
 
     def test_power_limits_full_battery(self):
         """Test power limits when battery is full."""
         battery = BatteryUnit(name="test", capacity_kwh=100, power_kw=50)
         battery.reset_state(E_plus_init=100.0, E_minus_init=0.0)
 
-        P_draw_max, P_inject_max = battery.power_limits(t=0)
+        P_grid_import_max, P_grid_export_max = battery.power_limits(t=0)
 
         # Cannot charge (no capacity remaining)
-        assert P_draw_max == pytest.approx(0.0, abs=0.1)
+        assert P_grid_import_max == pytest.approx(0.0, abs=0.1)
         # Can discharge at full power
-        assert P_inject_max == pytest.approx(50.0, rel=0.1)
+        assert P_grid_export_max == pytest.approx(50.0, rel=0.1)
 
     def test_power_limits_half_full(self):
         """Test power limits at 50% SOC."""
         battery = BatteryUnit(name="test", capacity_kwh=100, power_kw=50)
         battery.reset_state(E_plus_init=50.0, E_minus_init=50.0)
 
-        P_draw_max, P_inject_max = battery.power_limits(t=0)
+        P_grid_import_max, P_grid_export_max = battery.power_limits(t=0)
 
         # Can charge and discharge at full power (50 kWh / 0.25h = 200 kW > 50 kW)
-        assert P_draw_max == pytest.approx(50.0, rel=0.1)
-        assert P_inject_max == pytest.approx(50.0, rel=0.1)
+        assert P_grid_import_max == pytest.approx(50.0, rel=0.1)
+        assert P_grid_export_max == pytest.approx(50.0, rel=0.1)
 
-    def test_soc_calculation(self):
-        """Test SOC calculation."""
+    def test_soc_calculation_full_range(self):
+        """Test SOC calculation without SOC limits."""
         battery = BatteryUnit(name="test", capacity_kwh=100, power_kw=50)
 
         # Empty
@@ -99,29 +100,57 @@ class TestBatteryUnit:
         battery.reset_state(E_plus_init=100.0, E_minus_init=0.0)
         assert battery.soc() == pytest.approx(1.0)
 
+    def test_soc_calculation_restricted_range(self):
+        """Test SOC calculation with SOC limits."""
+        min_soc = 0.15
+        max_soc = 0.95
+        battery = BatteryUnit(name="test", capacity_kwh=100, power_kw=50, soc_min=min_soc, soc_max=max_soc)
+
+        # Usable capacity
+        usable_capacity = battery.usable_capacity
+        assert usable_capacity == pytest.approx(80.0)
+
+        # Depleted
+        battery.reset_state(E_plus_init=0.0, E_minus_init=usable_capacity)
+        assert battery.soc() == pytest.approx(min_soc)
+
+        # Half full
+        battery.reset_state(E_plus_init=usable_capacity/2, E_minus_init=usable_capacity/2)
+        assert battery.soc() == pytest.approx((min_soc + max_soc)/2)
+
+        # Full
+        battery.reset_state(E_plus_init=usable_capacity, E_minus_init=0.0)
+        assert battery.soc() == pytest.approx(max_soc)
+
     def test_charging_with_efficiency(self):
         """Test that charging respects efficiency."""
-        battery = BatteryUnit(name="test", capacity_kwh=100, power_kw=50, efficiency=0.9)
+        efficiency = 0.9
+        battery = BatteryUnit(name="test", capacity_kwh=100, power_kw=50, efficiency=efficiency)
         battery.reset_state(E_plus_init=50.0, E_minus_init=50.0)
 
         # Charge at 40 kW for 0.25 hours = 10 kWh
         # With 90% efficiency, only 9 kWh is stored
-        battery.update_state(t=0, dt_hours=0.25, P_draw_cmd=40.0, P_inject_cmd=0.0)
+        P_grid_import_cmd = 40
+        battery.update_state(t=0, P_grid_import=P_grid_import_cmd, P_grid_export=0.0)
 
         # SOC should increase by approximately 9 kWh
-        assert battery.E_plus == pytest.approx(50.0 + 9.0, abs=1.0)
+        P_real = DT_HOURS * P_grid_import_cmd * efficiency
+        assert battery.E_plus == pytest.approx(50.0 + P_real, abs=1.0)
 
     def test_discharging_with_efficiency(self):
         """Test that discharging respects efficiency."""
+        efficiency = 0.9
         battery = BatteryUnit(name="test", capacity_kwh=100, power_kw=50, efficiency=0.9)
         battery.reset_state(E_plus_init=50.0, E_minus_init=50.0)
 
         # Discharge at 40 kW for 0.25 hours = 10 kWh delivered to grid
         # With 90% efficiency, need to take 10/0.9 = 11.1 kWh from storage
-        battery.update_state(t=0, dt_hours=0.25, P_draw_cmd=0.0, P_inject_cmd=40.0)
+        P_grid_export_cmd = 40
+        battery.update_state(t=0, P_grid_import=0.0, P_grid_export=P_grid_export_cmd)
 
         # E_plus should decrease by approximately 11.1 kWh
-        assert battery.E_plus == pytest.approx(50.0 - 11.1, abs=1.0)
+        P_real = DT_HOURS * P_grid_export_cmd / efficiency
+        assert battery.E_plus == pytest.approx(50.0 - P_real, abs=1.0)
 
     def test_self_discharge(self):
         """Test self-discharge over time."""
@@ -129,15 +158,16 @@ class TestBatteryUnit:
             name="test",
             capacity_kwh=100,
             power_kw=50,
-            self_discharge_per_hour=0.01,  # 1% per hour
+            self_discharge_per_hour=0.02,  # 2% per hour
         )
         battery.reset_state(E_plus_init=100.0, E_minus_init=0.0)
 
         # Wait 1 hour with no operation
-        battery.update_state(t=0, dt_hours=1.0, P_draw_cmd=0.0, P_inject_cmd=0.0)
+        n_timesteps = int(1 / DT_HOURS)
+        battery.update_state(t=0, P_grid_import=0.0, P_grid_export=0.0, n_timesteps=n_timesteps)
 
         # Should lose approximately 1% = 1 kWh
-        assert battery.E_plus == pytest.approx(99.0, abs=0.5)
+        assert battery.E_plus == pytest.approx(98.0, abs=0.5)
 
 
 class TestBatteryCostModel:
@@ -173,11 +203,11 @@ class TestBatteryCostModel:
         )
 
         flex_state = {'soc': 0.5, 'E_plus': 50.0, 'E_minus': 50.0}
-        activation = {'P_draw': 40.0, 'P_inject': 0.0, 'dt_hours': 0.25}
+        activation = {'P_grid_import': 40.0, 'P_grid_export': 0.0, 'dt_hours': 0.25}
 
         step_cost = cost.step_cost(t=0, flex_state=flex_state, activation=activation)
 
-        # Degradation: 40 kW * 0.25 h * 0.05 CHF/kWh = 0.50 CHF
+        # Variable O&M cost: 40 kW * 0.25 h * 0.05 CHF/kWh = 0.50 CHF
         # Energy cost: 40 kW * 0.25 h * 0.25 CHF/kWh = 2.50 CHF
         # Total: 3.00 CHF
         assert step_cost == pytest.approx(3.00, abs=0.01)
@@ -194,7 +224,7 @@ class TestBatteryCostModel:
         )
 
         flex_state = {'soc': 0.5, 'E_plus': 50.0, 'E_minus': 50.0}
-        activation = {'P_draw': 0.0, 'P_inject': 40.0, 'dt_hours': 0.25}
+        activation = {'P_grid_import': 0.0, 'P_grid_export': 40.0, 'dt_hours': 0.25}
 
         step_cost = cost.step_cost(t=0, flex_state=flex_state, activation=activation)
 
@@ -215,7 +245,7 @@ class TestBatteryCostModel:
         )
 
         flex_state = {'soc': 0.5, 'E_plus': 50.0, 'E_minus': 50.0}
-        activation = {'P_draw': 40.0, 'P_inject': 0.0, 'dt_hours': 0.25}
+        activation = {'P_grid_import': 40.0, 'P_grid_export': 0.0, 'dt_hours': 0.25}
 
         # At t=0: buy price = 0.20
         cost_t0 = cost.step_cost(t=0, flex_state=flex_state, activation=activation)
@@ -243,6 +273,48 @@ class TestBatteryCostModel:
         # Annuity factor (r=0.05, n=10): 0.1295
         # Annual: 50,000 * 0.1295 = 6,475 CHF/a
         assert capex_annual == pytest.approx(6475.0, rel=0.01)
+
+    def test_total_cost_over_horizon(self):
+        """Test total cost aggregation over multiple time steps."""
+        cost = BatteryCostModel(
+            name="test",
+            c_inv=500.0,
+            n_lifetime=10.0,
+            p_int=0.05,  # CHF/kWh utilization
+            p_E_buy=0.20,  # CHF/kWh buy price
+            p_E_sell=0.18,  # CHF/kWh sell price
+        )
+
+        # Simulate a charge-discharge cycle over 4 time steps
+        time_indices = [0, 1, 2, 3]
+        flex_states = [
+            {'soc': 0.5, 'E_plus': 50.0, 'E_minus': 50.0},
+            {'soc': 0.6, 'E_plus': 60.0, 'E_minus': 40.0},
+            {'soc': 0.5, 'E_plus': 50.0, 'E_minus': 50.0},
+            {'soc': 0.4, 'E_plus': 40.0, 'E_minus': 60.0},
+        ]
+        activations = [
+            {'P_grid_import': 40.0, 'P_grid_export': 0.0, 'dt_hours': 0.25},  # Charge 40 kW
+            {'P_grid_import': 0.0, 'P_grid_export': 0.0, 'dt_hours': 0.25},   # Idle
+            {'P_grid_import': 0.0, 'P_grid_export': 40.0, 'dt_hours': 0.25},  # Discharge 40 kW
+            {'P_grid_import': 0.0, 'P_grid_export': 0.0, 'dt_hours': 0.25},   # Idle
+        ]
+
+        total = cost.total_cost(time_indices, flex_states, activations)
+
+        # Manual calculation: sum of step costs
+        # Step 0 - Charge: utilization + energy purchase
+        cost_step_0 = (40.0 * 0.25) * 0.05 + (40.0 * 0.25) * 0.20  # 0.50 + 2.00 = 2.50
+        # Step 1 - Idle: no cost
+        cost_step_1 = 0.0
+        # Step 2 - Discharge: utilization + energy sale (negative)
+        cost_step_2 = (40.0 * 0.25) * 0.05 + (-40.0 * 0.25) * 0.18  # 0.50 - 1.80 = -1.30
+        # Step 3 - Idle: no cost
+        cost_step_3 = 0.0
+
+        expected_total = cost_step_0 + cost_step_1 + cost_step_2 + cost_step_3  # 2.50 + 0 - 1.30 + 0 = 1.20
+        assert total == pytest.approx(expected_total, abs=0.01)
+        assert total == pytest.approx(1.20, abs=0.01)  # Net cost after round trip
 
 
 class TestBatteryFlex:
@@ -272,7 +344,7 @@ class TestBatteryFlex:
     def test_evaluate_feasible_charging(self):
         """Test evaluation of feasible charging operation."""
         result = self.battery_flex.evaluate_operation(
-            t=0, dt_hours=0.25, P_draw_cmd=40.0, P_inject_cmd=0.0
+            t=0, P_grid_import=40.0, P_grid_export=0.0
         )
 
         assert result['feasible'] is True
@@ -284,7 +356,7 @@ class TestBatteryFlex:
     def test_evaluate_feasible_discharging(self):
         """Test evaluation of feasible discharging operation."""
         result = self.battery_flex.evaluate_operation(
-            t=0, dt_hours=0.25, P_draw_cmd=0.0, P_inject_cmd=40.0
+            t=0, P_grid_import=0.0, P_grid_export=40.0
         )
 
         assert result['feasible'] is True
@@ -295,7 +367,7 @@ class TestBatteryFlex:
     def test_evaluate_exceeds_power_limit(self):
         """Test evaluation when power exceeds limits."""
         result = self.battery_flex.evaluate_operation(
-            t=0, dt_hours=0.25, P_draw_cmd=100.0, P_inject_cmd=0.0  # Exceeds 50 kW limit
+            t=0, P_grid_import=100.0, P_grid_export=0.0  # Exceeds 50 kW limit
         )
 
         assert result['feasible'] is False
@@ -305,7 +377,7 @@ class TestBatteryFlex:
     def test_evaluate_simultaneous_charge_discharge(self):
         """Test that simultaneous charging and discharging is infeasible."""
         result = self.battery_flex.evaluate_operation(
-            t=0, dt_hours=0.25, P_draw_cmd=20.0, P_inject_cmd=20.0
+            t=0, P_grid_import=20.0, P_grid_export=20.0
         )
 
         assert result['feasible'] is False
@@ -313,21 +385,42 @@ class TestBatteryFlex:
 
     def test_evaluate_soc_min_violation(self):
         """Test detection of SOC minimum violation."""
-        # Set up battery with minimal charge (5 kWh stored)
-        # Power limit will be: min(50, 5*4) = 20 kW
-        self.unit.reset_state(E_plus_init=5.0, E_minus_init=95.0)
+        # Create battery with SOC minimum constraint: 10% minimum
+        unit_with_soc_limits = BatteryUnit(
+            name="test",
+            capacity_kwh=100.0,
+            power_kw=50.0,
+            efficiency=0.95,
+            soc_min=0.10,  # 10% minimum SOC
+        )
+        flex = BatteryFlex(unit=unit_with_soc_limits, cost_model=self.cost_model)
 
-        # Try to discharge 15 kW for 0.25h = 3.75 kWh gross
-        # With 95% efficiency, this needs 3.75/0.95 = 3.95 kWh from storage
-        # This is within power limit (20 kW) but would violate soc_min
-        result = self.battery_flex.evaluate_operation(
-            t=0, dt_hours=0.25, P_draw_cmd=0.0, P_inject_cmd=15.0
+        # Set up battery near minimum: 12 kWh stored = 12% SOC
+        # Usable capacity: (1.0 - 0.1) * 100 = 90 kWh
+        # E_plus=12 means 12 kWh above soc_min → SOC = 0.1 + 12/100 = 0.22
+        unit_with_soc_limits.reset_state(E_plus_init=12.0, E_minus_init=78.0)
+
+        # Try to discharge 40 kW for 0.25h = 10 kWh gross
+        # With 95% efficiency, needs 10/0.95 = 10.53 kWh from storage
+        # This would leave: 12 - 10.53 = 1.47 kWh → SOC = 0.1 + 1.47/100 = 0.1147
+        # But that violates our constraint since we're discharging below comfortable margin
+        result = flex.evaluate_operation(
+            t=0, P_grid_import=0.0, P_grid_export=40.0
         )
 
-        # Should fail either due to power limit or SOC limit
-        # Both are valid reasons for infeasibility
+        # The operation should succeed but leave us very close to minimum
+        # Let's try a larger discharge that clearly violates soc_min
+        # Discharge 48 kW for 0.25h = 12 kWh gross
+        # Needs 12/0.95 = 12.63 kWh from storage
+        # This would leave: 12 - 12.63 = -0.63 kWh → SOC would go negative!
+        result = flex.evaluate_operation(
+            t=0, P_grid_import=0.0, P_grid_export=48.0
+        )
+
+        # Should fail due to SOC minimum violation
         assert result['feasible'] is False
         assert len(result['violations']) > 0
+        assert any('SOC' in v or 'minimum' in v for v in result['violations'])
 
     def test_execute_operation(self):
         """Test execution of operation updates state."""
@@ -337,7 +430,7 @@ class TestBatteryFlex:
 
         # Execute charging operation
         self.battery_flex.execute_operation(
-            t=0, dt_hours=0.25, P_draw_cmd=40.0, P_inject_cmd=0.0
+            t=0, P_grid_import=40.0, P_grid_export=0.0
         )
 
         # Check state updated
@@ -348,8 +441,8 @@ class TestBatteryFlex:
     def test_get_metrics(self):
         """Test metrics retrieval."""
         # Execute some operations
-        self.battery_flex.execute_operation(t=0, dt_hours=0.25, P_draw_cmd=40.0, P_inject_cmd=0.0)
-        self.battery_flex.execute_operation(t=1, dt_hours=0.25, P_draw_cmd=0.0, P_inject_cmd=30.0)
+        self.battery_flex.execute_operation(t=0, P_grid_import=40.0, P_grid_export=0.0)
+        self.battery_flex.execute_operation(t=1, P_grid_import=0.0, P_grid_export=30.0)
 
         metrics = self.battery_flex.get_metrics()
 
@@ -365,7 +458,7 @@ class TestBatteryFlex:
     def test_reset(self):
         """Test reset functionality."""
         # Do some operations
-        self.battery_flex.execute_operation(t=0, dt_hours=0.25, P_draw_cmd=40.0, P_inject_cmd=0.0)
+        self.battery_flex.execute_operation(t=0, P_grid_import=40.0, P_grid_export=0.0)
 
         # Reset
         self.battery_flex.reset(E_plus_init=50.0, E_minus_init=50.0)
@@ -394,12 +487,12 @@ class TestBatteryIntegration:
         initial_soc = unit.soc()
 
         # Charge
-        battery.execute_operation(t=0, dt_hours=0.25, P_draw_cmd=40.0, P_inject_cmd=0.0)
+        battery.execute_operation(t=0, P_grid_import=40.0, P_grid_export=0.0)
         soc_after_charge = unit.soc()
         assert soc_after_charge > initial_soc
 
         # Discharge
-        battery.execute_operation(t=1, dt_hours=0.25, P_draw_cmd=0.0, P_inject_cmd=40.0)
+        battery.execute_operation(t=1, P_grid_import=0.0, P_grid_export=40.0)
         soc_after_discharge = unit.soc()
 
         # Due to round-trip efficiency, SOC should be slightly lower than initial
@@ -421,12 +514,12 @@ class TestBatteryIntegration:
         battery.reset(E_plus_init=50.0, E_minus_init=50.0)
 
         # Charge at t=0 (cheap)
-        result_charge = battery.evaluate_operation(t=0, dt_hours=0.25, P_draw_cmd=40.0, P_inject_cmd=0.0)
-        battery.execute_operation(t=0, dt_hours=0.25, P_draw_cmd=40.0, P_inject_cmd=0.0)
+        result_charge = battery.evaluate_operation(t=0, P_grid_import=40.0, P_grid_export=0.0)
+        battery.execute_operation(t=0, P_grid_import=40.0, P_grid_export=0.0)
 
         # Discharge at t=1 (expensive)
-        result_discharge = battery.evaluate_operation(t=1, dt_hours=0.25, P_draw_cmd=0.0, P_inject_cmd=40.0)
-        battery.execute_operation(t=1, dt_hours=0.25, P_draw_cmd=0.0, P_inject_cmd=40.0)
+        result_discharge = battery.evaluate_operation(t=1, P_grid_import=0.0, P_grid_export=40.0)
+        battery.execute_operation(t=1, P_grid_import=0.0, P_grid_export=40.0)
 
         # Revenue from discharge should exceed cost of charge (minus degradation)
         metrics = battery.get_metrics()

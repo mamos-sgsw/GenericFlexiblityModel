@@ -48,10 +48,10 @@ TYPICAL WORKFLOW
     battery.reset_state(E_plus_init=50.0, E_minus_init=50.0)  # 50% SOC
 
 3. Query physical limits:
-    P_draw_max, P_inject_max = battery.power_limits(t=10)
+    P_import_max, P_export_max = battery.power_limits(t=10)
 
 4. Execute operation:
-    battery.update_state(t=10, dt_hours=0.25, P_draw_cmd=20.0, P_inject_cmd=0.0)
+    battery.update_state(t=10, P_grid_import_cmd=20.0, P_grid_export_cmd=0.0)
 
 5. Check new state:
     soc = battery.E_plus / battery.C_spec
@@ -59,10 +59,10 @@ TYPICAL WORKFLOW
 IMPLEMENTATION REQUIREMENTS FOR SUBCLASSES
 -------------------------------------------
 Abstract methods that MUST be implemented:
-    - power_limits(t): Return (P_draw_max, P_inject_max) based on current state
+    - power_limits(t): Return (P_import_max, P_export_max) based on current state
 
 Optional methods to override:
-    - ramp_limits(t): Return (dP_draw_max, dP_inject_max) if ramp constraints exist
+    - ramp_limits(t): Return (dP_import_max, dP_export_max) if ramp constraints exist
     - duration_limits(): Return (t_max_active, t_min_rest) for min up/down times
     - capacity(t): Override if capacity is time-dependent (e.g., temperature effects)
     - feasible_access_states(t): Override to filter discrete states dynamically
@@ -78,6 +78,7 @@ from abc import ABC, abstractmethod
 from typing import Callable, List, Optional, Sequence, Tuple
 
 from flex_model.core.access_state import AccessState
+from flex_model.settings import DT_HOURS
 
 
 class FlexUnit(ABC):
@@ -86,6 +87,8 @@ class FlexUnit(ABC):
 
     Subclasses must implement: power_limits(t).
     """
+
+    dt_hours: float = DT_HOURS
 
     # ------------------------------------------------------------------
     # 1. Construction
@@ -147,12 +150,12 @@ class FlexUnit(ABC):
 
         # ------------------------------------------------------------------
         # Internal power state (optional tracking of current activation).
-        # Positive P_draw  : extra power drawn compared to baseline  [kW]
-        # Positive P_inject: extra power injected compared to baseline [kW]
-        # In many use cases you will work with net power = P_inject - P_draw.
+        # P_grid_import: power imported from grid [kW]
+        # P_grid_export: power exported to grid [kW]
+        # Net power = P_grid_export - P_grid_import
         # ------------------------------------------------------------------
-        self.P_draw: float = 0.0
-        self.P_inject: float = 0.0
+        self.P_grid_import: float = 0.0
+        self.P_grid_export: float = 0.0
 
         # Duration tracking for min up/down time constraints (if used)
         self._time_in_active_state: int = 0  # [time steps]
@@ -190,11 +193,11 @@ class FlexUnit(ABC):
         Return instantaneous power limits at time t.
 
         Returns:
-            (P_draw_max, P_inject_max), both >= 0, in [kW].
+            (P_import_max, P_export_max), both >= 0, in [kW].
 
         Interpretation:
-            - P_draw_max(t)   : maximum extra power the unit can draw from the system.
-            - P_inject_max(t) : maximum extra power the unit can inject into the system.
+            - P_import_max(t): maximum power that can be imported from grid
+            - P_export_max(t): maximum power that can be exported to grid
 
         These limits should already take availability and internal energy state
         (E_plus / E_minus) into account.
@@ -206,12 +209,12 @@ class FlexUnit(ABC):
         Optional ramp rate limits between time steps.
 
         Returns:
-            (dP_draw_max, dP_inject_max) in [kW per time step], or (None, None)
+            (dP_import_max, dP_export_max) in [kW per time step], or (None, None)
             if ramp limits are not modelled.
 
         Interpretation:
-            - |P_draw(t)   - P_draw(t-1)|   <= dP_draw_max
-            - |P_inject(t) - P_inject(t-1)| <= dP_inject_max
+            - |P_grid_import(t) - P_grid_import(t-1)| <= dP_import_max
+            - |P_grid_export(t) - P_grid_export(t-1)| <= dP_export_max
         """
         return None, None  # by default: no ramp constraints
 
@@ -258,30 +261,34 @@ class FlexUnit(ABC):
     def update_state(
         self,
         t: int,
-        dt_hours: float,
-        P_draw_cmd: float,
-        P_inject_cmd: float,
+        P_grid_import_cmd: float,
+        P_grid_export_cmd: float,
+        n_timesteps: int = 1,
         P_loss: float = 0.0,
         P_gain: float = 0.0,
     ) -> None:
         """
-        Generic energy headroom update based on commanded power.
+        Generic energy headroom update based on commanded power at grid connection.
 
         Args:
             t:
                 Time index (integer). Used only for availability / capacity
                 checks here; physics are time-homogeneous.
 
-            dt_hours:
-                Duration of the time step [h].
+            P_grid_import_cmd:
+                Power imported from grid [kW] during this time step.
+                For batteries: charging power.
+                For loads: consumption power.
+                Positive = importing from grid.
 
-            P_draw_cmd:
-                Extra draw power command [kW] for this unit in this time step.
-                Positive = more consumption, zero or negative = no extra draw.
+            P_grid_export_cmd:
+                Power exported to grid [kW] during this time step.
+                For batteries: discharging power.
+                For generators: production power.
+                Positive = exporting to grid.
 
-            P_inject_cmd:
-                Extra injection power command [kW] for this unit in this time step.
-                Positive = more generation / less consumption, zero or negative = no extra injection.
+            n_timesteps:
+                Number of timesteps [-].
 
             P_loss:
                 Power lost during this time step [kW] due to inefficiencies
@@ -295,28 +302,32 @@ class FlexUnit(ABC):
             - This method updates E_plus and E_minus **in-place**.
             - Subclasses are responsible for calling this with physically
               meaningful commands and loss/gain values.
+            - Grid perspective: import = flow INTO site, export = flow OUT OF site
         """
         # Clip commands to be non-negative (interpretation of signs is external)
-        P_draw = max(0.0, P_draw_cmd)
-        P_inject = max(0.0, P_inject_cmd)
+        P_import = max(0.0, P_grid_import_cmd)
+        P_export = max(0.0, P_grid_export_cmd)
 
-        self.P_draw = P_draw
-        self.P_inject = P_inject
+        self.P_grid_import = P_import
+        self.P_grid_export = P_export
 
         # Convert powers to energies for this time step
-        E_draw = P_draw * dt_hours
-        E_inject = P_inject * dt_hours
-        E_gain = P_gain * dt_hours
-        E_loss = P_loss * dt_hours
+        delta_t = n_timesteps * DT_HOURS
+        E_import = P_import * delta_t
+        E_export = P_export * delta_t
+        E_gain = P_gain * delta_t
+        E_loss = P_loss * delta_t
 
-        # Upper accessible energy: how much can still be drawn
-        # (intuitively decreases when we draw, increases when we inject or gain)
-        delta_plus = E_inject - E_draw + E_gain - E_loss
+        # Upper accessible energy: how much can still be exported (E_plus)
+        # For generators: increases when producing (export), decreases when importing
+        # For storage: decreases when exporting (discharge), increases when importing (charge)
+        # Base implementation is for generators; storage overrides this method
+        delta_plus = E_export - E_import + E_gain - E_loss
         self.E_plus = max(0.0, min(self.E_plus + delta_plus, self.capacity(t)))
 
-        # Lower accessible energy: how much can still be injected
-        # (intuitively decreases when we inject, increases when we draw or lose)
-        delta_minus = E_draw - E_inject - E_gain + E_loss
+        # Lower accessible energy: how much can still be imported (E_minus)
+        # Inverse of E_plus
+        delta_minus = E_import - E_export - E_gain + E_loss
         self.E_minus = max(0.0, min(self.E_minus + delta_minus, self.capacity(t)))
 
     # ------------------------------------------------------------------
@@ -342,6 +353,6 @@ class FlexUnit(ABC):
         """
         self.E_plus = max(0.0, E_plus_init)
         self.E_minus = max(0.0, E_minus_init)
-        self.P_draw = 0.0
-        self.P_inject = 0.0
+        self.P_grid_import = 0.0
+        self.P_grid_export = 0.0
         self._time_in_active_state = 0

@@ -92,7 +92,7 @@ TYPICAL WORKFLOW
 
 3. Evaluate step cost:
     flex_state = {'soc': 0.7, 'E_plus': 30.0, 'E_minus': 70.0}
-    activation = {'P_draw': 20.0, 'P_inject': 0.0, 'dt_hours': 0.25}
+    activation = {'P_grid_import': 20.0, 'P_grid_export': 0.0, 'dt_hours': 0.25}
     cost_t = cost.step_cost(t=10, flex_state=flex_state, activation=activation)
 
 4. Aggregate total cost:
@@ -133,19 +133,19 @@ EXAMPLE: Battery Cost Model
 ----------------------------
     class BatteryCostModel(CostModel):
         def step_cost(self, t, flex_state, activation):
-            P_draw = activation['P_draw']
-            P_inject = activation['P_inject']
+            P_import = activation['P_grid_import']
+            P_export = activation['P_grid_export']
             dt_hours = activation['dt_hours']
 
             # Internal degradation cost
-            throughput = (P_draw + P_inject) * dt_hours
+            throughput = (P_import + P_export) * dt_hours
             cost_internal = throughput * self.p_int(t)
 
             # External energy cost
-            E_net = (P_draw - P_inject) * dt_hours
-            if E_net > 0:  # net draw (buying)
+            E_net = (P_import - P_export) * dt_hours
+            if E_net > 0:  # net import (buying)
                 cost_energy = E_net * self.p_E_buy(t)
-            else:  # net inject (selling)
+            else:  # net export (selling)
                 cost_energy = E_net * self.p_E_sell(t)  # negative = revenue
 
             return cost_internal + cost_energy

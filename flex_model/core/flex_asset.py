@@ -60,13 +60,13 @@ TYPICAL WORKFLOW
     optimal_schedule = optimizer.solve()
 
 5. Evaluate operation (during optimization):
-    result = battery_flex.evaluate_operation(t=10, dt_hours=0.25, P_draw=20.0, P_inject=0.0)
+    result = battery_flex.evaluate_operation(t=10, dt_hours=0.25, P_grid_import=20.0, P_grid_export=0.0)
     if result['feasible']:
         cost = result['cost']
         # ... use in objective function ...
 
 6. Execute operation (after optimization):
-    battery_flex.execute_operation(t=10, dt_hours=0.25, P_draw=20.0, P_inject=0.0)
+    battery_flex.execute_operation(t=10, dt_hours=0.25, P_grid_import=20.0, P_grid_export=0.0)
 
 7. Get metrics:
     metrics = battery_flex.get_metrics()
@@ -90,15 +90,15 @@ Market options (may not need FlexUnit):
 IMPLEMENTATION REQUIREMENTS FOR SUBCLASSES
 -------------------------------------------
 Abstract methods that MUST be implemented:
-    - evaluate_operation(t, dt_hours, P_draw_cmd, P_inject_cmd):
+    - evaluate_operation(t, dt_hours, P_grid_import, P_grid_export):
         Check feasibility and calculate cost WITHOUT modifying state.
 
-    - execute_operation(t, dt_hours, P_draw_cmd, P_inject_cmd):
+    - execute_operation(t, dt_hours, P_grid_import, P_grid_export):
         Execute the operation, updating physical state and tracking metrics.
 
 Typical implementation pattern:
     1. evaluate_operation():
-        a. Check physical feasibility: P_draw <= P_draw_max, etc.
+        a. Check physical feasibility: P_grid_import <= P_import_max, etc.
         b. Calculate cost using cost_model.step_cost()
         c. Return dict with 'feasible', 'cost', 'violations'
         d. Must be STATELESS (no modifications to self.unit or tracking)
@@ -120,7 +120,7 @@ FlexAsset communicates with CostModel via two data structures:
     Example: {'soc': 0.7, 'E_plus': 30.0, 'E_minus': 70.0}
 
 2. activation: Operational decision
-    Example: {'P_draw': 20.0, 'P_inject': 0.0, 'dt_hours': 0.25}
+    Example: {'P_grid_import': 20.0, 'P_grid_export': 0.0, 'dt_hours': 0.25}
 
 The structure of these is agreed between FlexAsset and CostModel implementations.
 The base classes (FlexUnit, CostModel, FlexAsset) don't dictate the structure,
@@ -133,6 +133,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any
 
 from flex_model.core.flex_unit import FlexUnit
+from flex_model.settings import DT_HOURS
 
 
 class FlexAsset(ABC):
@@ -141,6 +142,8 @@ class FlexAsset(ABC):
 
     Subclasses must implement: evaluate_operation(...), execute_operation(...).
     """
+
+    dt_hours: float = DT_HOURS
 
     def __init__(self, unit: FlexUnit, name: str = None) -> None:
         """
@@ -168,8 +171,8 @@ class FlexAsset(ABC):
         self,
         t: int,
         dt_hours: float,
-        P_draw_cmd: float,
-        P_inject_cmd: float,
+        P_grid_import: float,
+        P_grid_export: float,
     ) -> Dict[str, Any]:
         """
         Evaluate an operational decision without executing it.
@@ -177,8 +180,8 @@ class FlexAsset(ABC):
         Args:
             t: Time index (integer).
             dt_hours: Duration of the time step [h].
-            P_draw_cmd: Proposed extra power draw [kW] for this time step.
-            P_inject_cmd: Proposed extra power injection [kW] for this time step.
+            P_grid_import: Proposed power import from grid [kW] for this time step.
+            P_grid_export: Proposed power export to grid [kW] for this time step.
 
         Returns:
             Dictionary containing at minimum:
@@ -200,8 +203,8 @@ class FlexAsset(ABC):
         self,
         t: int,
         dt_hours: float,
-        P_draw_cmd: float,
-        P_inject_cmd: float,
+        P_grid_import: float,
+        P_grid_export: float,
     ) -> None:
         """
         Execute an operational decision, updating physical state and metrics.
@@ -209,8 +212,8 @@ class FlexAsset(ABC):
         Args:
             t: Time index (integer).
             dt_hours: Duration of the time step [h].
-            P_draw_cmd: Extra power draw command [kW] to execute.
-            P_inject_cmd: Extra power injection command [kW] to execute.
+            P_grid_import: Power import from grid command [kW] to execute.
+            P_grid_export: Power export to grid command [kW] to execute.
 
         Notes:
             - DOES modify state (calls self.unit.update_state()).
@@ -228,7 +231,7 @@ class FlexAsset(ABC):
         Delegate to underlying FlexUnit for physical power limits.
 
         Returns:
-            (P_draw_max, P_inject_max) in [kW].
+            (P_import_max, P_export_max) in [kW].
         """
         return self.unit.power_limits(t)
 

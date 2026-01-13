@@ -57,3 +57,4 @@ Thumbs.db
 examples/*/data/*.csv
 !examples/*/data/*_template.csv
 examples/*/results/
+examples/*/output/*.html

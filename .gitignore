@@ -45,6 +45,7 @@ env/
 # IDE settings
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 *~

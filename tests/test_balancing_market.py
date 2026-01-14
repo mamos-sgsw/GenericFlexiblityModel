@@ -11,6 +11,7 @@ Run with: pytest tests/test_balancing_market.py -v
 import pytest
 
 from flex_model.assets import BalancingMarketCost, BalancingMarketFlex
+from flex_model.settings import DT_HOURS
 
 
 class TestBalancingMarketCost:
@@ -354,5 +355,5 @@ class TestBalancingMarketIntegration:
 
         # Peak should be more expensive
         assert result_peak['cost'] > result_offpeak['cost']
-        assert result_offpeak['cost'] == pytest.approx(10.0 * 1.0 * 0.15)  # 1.5 CHF
-        assert result_peak['cost'] == pytest.approx(10.0 * 1.0 * 0.30)  # 3.0 CHF
+        assert result_offpeak['cost'] == pytest.approx(10.0 * DT_HOURS * 0.15)  # 0.375 CHF
+        assert result_peak['cost'] == pytest.approx(10.0 * DT_HOURS * 0.30)  # 0.75 CHF

@@ -180,82 +180,12 @@ class TestBatteryCostModel:
             c_inv=500.0,
             n_lifetime=10.0,
             p_int=0.05,
-            p_E_buy=0.25,
-            p_E_sell=0.20,
         )
 
         assert cost.name == "test_cost"
         assert cost.c_inv == 500.0
         assert cost.n_lifetime == 10.0
         assert cost.p_int(0) == 0.05
-        assert cost.p_E_buy(0) == 0.25
-        assert cost.p_E_sell(0) == 0.20
-
-    def test_step_cost_charging(self):
-        """Test cost calculation when charging."""
-        cost = BatteryCostModel(
-            name="test",
-            c_inv=500.0,
-            n_lifetime=10.0,
-            p_int=0.05,  # CHF/kWh degradation
-            p_E_buy=0.25,  # CHF/kWh buy price
-            p_E_sell=0.20,  # CHF/kWh sell price
-        )
-
-        flex_state = {'soc': 0.5, 'E_plus': 50.0, 'E_minus': 50.0}
-        activation = {'P_grid_import': 40.0, 'P_grid_export': 0.0}
-
-        step_cost = cost.step_cost(t=0, flex_state=flex_state, activation=activation)
-
-        # Variable O&M cost: 40 kW * 0.25 h * 0.05 CHF/kWh = 0.50 CHF
-        # Energy cost: 40 kW * 0.25 h * 0.25 CHF/kWh = 2.50 CHF
-        # Total: 3.00 CHF
-        assert step_cost == pytest.approx(3.00, abs=0.01)
-
-    def test_step_cost_discharging(self):
-        """Test cost calculation when discharging (revenue)."""
-        cost = BatteryCostModel(
-            name="test",
-            c_inv=500.0,
-            n_lifetime=10.0,
-            p_int=0.05,  # CHF/kWh degradation
-            p_E_buy=0.25,  # CHF/kWh buy price
-            p_E_sell=0.20,  # CHF/kWh sell price
-        )
-
-        flex_state = {'soc': 0.5, 'E_plus': 50.0, 'E_minus': 50.0}
-        activation = {'P_grid_import': 0.0, 'P_grid_export': 40.0}
-
-        step_cost = cost.step_cost(t=0, flex_state=flex_state, activation=activation)
-
-        # Degradation: 40 kW * 0.25 h * 0.05 CHF/kWh = 0.50 CHF
-        # Energy revenue: 40 kW * 0.25 h * 0.20 CHF/kWh = 2.00 CHF (negative cost)
-        # Total: 0.50 - 2.00 = -1.50 CHF (net revenue)
-        assert step_cost == pytest.approx(-1.50, abs=0.01)
-
-    def test_time_varying_prices(self):
-        """Test cost calculation with time-varying prices."""
-        cost = BatteryCostModel(
-            name="test",
-            c_inv=500.0,
-            n_lifetime=10.0,
-            p_int=0.05,
-            p_E_buy={0: 0.20, 1: 0.30, 2: 0.25},  # Time-varying
-            p_E_sell={0: 0.18, 1: 0.28, 2: 0.23},
-        )
-
-        flex_state = {'soc': 0.5, 'E_plus': 50.0, 'E_minus': 50.0}
-        activation = {'P_grid_import': 40.0, 'P_grid_export': 0.0}
-
-        # At t=0: buy price = 0.20
-        cost_t0 = cost.step_cost(t=0, flex_state=flex_state, activation=activation)
-        # Degradation: 0.50, Energy: 40*0.25*0.20 = 2.00, Total: 2.50
-        assert cost_t0 == pytest.approx(2.50, abs=0.01)
-
-        # At t=1: buy price = 0.30
-        cost_t1 = cost.step_cost(t=1, flex_state=flex_state, activation=activation)
-        # Degradation: 0.50, Energy: 40*0.25*0.30 = 3.00, Total: 3.50
-        assert cost_t1 == pytest.approx(3.50, abs=0.01)
 
     def test_annualized_investment(self):
         """Test annualized investment calculation."""
@@ -274,49 +204,6 @@ class TestBatteryCostModel:
         # Annual: 50,000 * 0.1295 = 6,475 CHF/a
         assert capex_annual == pytest.approx(6475.0, rel=0.01)
 
-    def test_total_cost_over_horizon(self):
-        """Test total cost aggregation over multiple time steps."""
-        cost = BatteryCostModel(
-            name="test",
-            c_inv=500.0,
-            n_lifetime=10.0,
-            p_int=0.05,  # CHF/kWh utilization
-            p_E_buy=0.20,  # CHF/kWh buy price
-            p_E_sell=0.18,  # CHF/kWh sell price
-        )
-
-        # Simulate a charge-discharge cycle over 4 time steps
-        time_indices = [0, 1, 2, 3]
-        flex_states = [
-            {'soc': 0.5, 'E_plus': 50.0, 'E_minus': 50.0},
-            {'soc': 0.6, 'E_plus': 60.0, 'E_minus': 40.0},
-            {'soc': 0.5, 'E_plus': 50.0, 'E_minus': 50.0},
-            {'soc': 0.4, 'E_plus': 40.0, 'E_minus': 60.0},
-        ]
-        activations = [
-            {'P_grid_import': 40.0, 'P_grid_export': 0.0},  # Charge 40 kW
-            {'P_grid_import': 0.0, 'P_grid_export': 0.0},   # Idle
-            {'P_grid_import': 0.0, 'P_grid_export': 40.0},  # Discharge 40 kW
-            {'P_grid_import': 0.0, 'P_grid_export': 0.0},   # Idle
-        ]
-
-        total = cost.total_cost(time_indices, flex_states, activations)
-
-        # Manual calculation: sum of step costs
-        # Step 0 - Charge: utilization + energy purchase
-        cost_step_0 = (40.0 * 0.25) * 0.05 + (40.0 * 0.25) * 0.20  # 0.50 + 2.00 = 2.50
-        # Step 1 - Idle: no cost
-        cost_step_1 = 0.0
-        # Step 2 - Discharge: utilization + energy sale (negative)
-        cost_step_2 = (40.0 * 0.25) * 0.05 + (-40.0 * 0.25) * 0.18  # 0.50 - 1.80 = -1.30
-        # Step 3 - Idle: no cost
-        cost_step_3 = 0.0
-
-        expected_total = cost_step_0 + cost_step_1 + cost_step_2 + cost_step_3  # 2.50 + 0 - 1.30 + 0 = 1.20
-        assert total == pytest.approx(expected_total, abs=0.01)
-        assert total == pytest.approx(1.20, abs=0.01)  # Net cost after round trip
-
-
 class TestBatteryFlex:
     """Tests for BatteryFlex operational composition."""
 
@@ -334,8 +221,6 @@ class TestBatteryFlex:
             c_inv=500.0,
             n_lifetime=10.0,
             p_int=0.05,
-            p_E_buy=0.25,
-            p_E_sell=0.20,
         )
 
         self.battery_flex = BatteryFlex(unit=self.unit, cost_model=self.cost_model)
@@ -349,7 +234,7 @@ class TestBatteryFlex:
 
         assert result['feasible'] is True
         assert len(result['violations']) == 0
-        assert result['cost'] > 0  # Charging costs money
+        assert result['cost'] > 0  # Charging costs money due to battery degradation
         assert 0 <= result['soc'] <= 1
         assert result['throughput'] == pytest.approx(10.0)  # 40 kW * 0.25 h
 
@@ -361,7 +246,7 @@ class TestBatteryFlex:
 
         assert result['feasible'] is True
         assert len(result['violations']) == 0
-        assert result['cost'] < 0  # Discharging generates revenue
+        assert result['cost'] > 0  # Discharging also leads to degradation
         assert 0 <= result['soc'] <= 1
 
     def test_evaluate_exceeds_power_limit(self):
@@ -478,8 +363,7 @@ class TestBatteryIntegration:
         # Setup
         unit = BatteryUnit(name="battery", capacity_kwh=100, power_kw=50, efficiency=0.95)
         cost = BatteryCostModel(
-            name="cost", c_inv=500, n_lifetime=10, p_int=0.05,
-            p_E_buy=0.25, p_E_sell=0.20
+            name="cost", c_inv=500, n_lifetime=10, p_int=0.05
         )
         battery = BatteryFlex(unit=unit, cost_model=cost)
         battery.reset(E_plus_init=50.0, E_minus_init=50.0)
@@ -498,31 +382,3 @@ class TestBatteryIntegration:
         # Due to round-trip efficiency, SOC should be slightly lower than initial
         assert soc_after_discharge < soc_after_charge
         assert soc_after_discharge < initial_soc
-
-    def test_arbitrage_scenario(self):
-        """Test energy arbitrage: charge when cheap, discharge when expensive."""
-        unit = BatteryUnit(name="battery", capacity_kwh=100, power_kw=50, efficiency=0.95)
-        cost = BatteryCostModel(
-            name="cost",
-            c_inv=500,
-            n_lifetime=10,
-            p_int=0.05,
-            p_E_buy={0: 0.15, 1: 0.35},  # Low at t=0, high at t=1
-            p_E_sell={0: 0.13, 1: 0.33},
-        )
-        battery = BatteryFlex(unit=unit, cost_model=cost)
-        battery.reset(E_plus_init=50.0, E_minus_init=50.0)
-
-        # Charge at t=0 (cheap)
-        result_charge = battery.evaluate_operation(t=0, P_grid_import=40.0, P_grid_export=0.0)
-        battery.execute_operation(t=0, P_grid_import=40.0, P_grid_export=0.0)
-
-        # Discharge at t=1 (expensive)
-        result_discharge = battery.evaluate_operation(t=1, P_grid_import=0.0, P_grid_export=40.0)
-        battery.execute_operation(t=1, P_grid_import=0.0, P_grid_export=40.0)
-
-        # Revenue from discharge should exceed cost of charge (minus degradation)
-        metrics = battery.get_metrics()
-        # Net cost should be relatively small or negative (profit)
-        # Exact value depends on efficiency and degradation
-        assert metrics['total_cost_eur'] < result_charge['cost']  # Some revenue earned

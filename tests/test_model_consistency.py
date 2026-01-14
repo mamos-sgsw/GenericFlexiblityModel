@@ -48,7 +48,7 @@ class TestBalancingMarketConsistency:
             )
         )
 
-        # Operation: Import 40 kW for 1 timestep (uses FlexAsset.dt_hours)
+        # Operation: Import 40 kW for 1 timestep
         P_import = 40.0
         P_export = 0.0
 
@@ -57,10 +57,10 @@ class TestBalancingMarketConsistency:
         cost_operational = result['cost']
 
         # Method 2: Linear model
-        linear_model = market.get_linear_model(n_timesteps=1, dt_hours=FlexAsset.dt_hours)
+        linear_model = market.get_linear_model(n_timesteps=1)
 
         # LP cost calculation (manually, since we're not solving an optimization)
-        # cost_coefficients[0] = p_buy * dt_hours (for P_import variable)
+        # cost_coefficients[0] = p_buy * dt (for P_import variable)
         # cost = cost_coefficients[0] * P_import
         cost_lp = linear_model.cost_coefficients[0] * P_import
 
@@ -89,9 +89,9 @@ class TestBalancingMarketConsistency:
         cost_operational = result['cost']
 
         # Method 2: Linear model
-        linear_model = market.get_linear_model(n_timesteps=1, dt_hours=FlexAsset.dt_hours)
+        linear_model = market.get_linear_model(n_timesteps=1)
 
-        # cost_coefficients[1] = -p_sell * dt_hours (for P_export variable)
+        # cost_coefficients[1] = -p_sell * dt (for P_export variable)
         # cost = cost_coefficients[1] * P_export (negative = revenue)
         cost_lp = linear_model.cost_coefficients[1] * P_export
 
@@ -135,7 +135,7 @@ class TestBalancingMarketConsistency:
             market.execute_operation(t, P_import, P_export)
 
         # Method 2: Calculate cost from linear model
-        linear_model = market.get_linear_model(n_timesteps, FlexAsset.dt_hours)
+        linear_model = market.get_linear_model(n_timesteps)
 
         # Calculate LP cost for fixed operations
         total_cost_lp = 0.0
@@ -163,7 +163,7 @@ class TestBalancingMarketConsistency:
 
         # Test case 1: Zero power (idle)
         result_op = market.evaluate_operation(0, 0.0, 0.0)
-        linear_model = market.get_linear_model(1, FlexAsset.dt_hours)
+        linear_model = market.get_linear_model(1)
         cost_lp = linear_model.cost_coefficients[0] * 0.0 + \
                   linear_model.cost_coefficients[1] * 0.0
 
@@ -254,8 +254,8 @@ class TestBatteryConsistency:
         )
 
         optimizer = LPOptimizer(n_timesteps=n_timesteps)
-        optimizer.add_asset(battery_lp.get_linear_model(n_timesteps, FlexAsset.dt_hours))
-        optimizer.add_asset(market_lp.get_linear_model(n_timesteps, FlexAsset.dt_hours))
+        optimizer.add_asset(battery_lp.get_linear_model(n_timesteps))
+        optimizer.add_asset(market_lp.get_linear_model(n_timesteps))
         optimizer.set_imbalance(imbalance)
 
         lp_result = optimizer.solve()
@@ -339,8 +339,8 @@ class TestBatteryConsistency:
         )
 
         optimizer = LPOptimizer(n_timesteps=n_timesteps)
-        optimizer.add_asset(battery_lp.get_linear_model(n_timesteps, FlexAsset.dt_hours))
-        optimizer.add_asset(market_lp.get_linear_model(n_timesteps, FlexAsset.dt_hours))
+        optimizer.add_asset(battery_lp.get_linear_model(n_timesteps))
+        optimizer.add_asset(market_lp.get_linear_model(n_timesteps))
         optimizer.set_imbalance(imbalance)
 
         lp_result = optimizer.solve()
@@ -391,62 +391,3 @@ class TestBatteryConsistency:
         assert cost_op_battery >= 0, "Battery cost should be non-negative"
         assert P_charge_lp >= 0, "Charge power should be non-negative"
         assert P_discharge_lp >= 0, "Discharge power should be non-negative"
-
-
-class TestFutureRepresentationConsistency:
-    """
-    Placeholder for future representation consistency tests.
-
-    As new optimization algorithm representations are added (GA, DP, RL),
-    add corresponding consistency tests here.
-    """
-
-    def test_operational_vs_ga_placeholder(self):
-        """Placeholder: Test operational vs. GA representation consistency."""
-        pytest.skip("GA representation not yet implemented")
-
-    def test_operational_vs_dp_placeholder(self):
-        """Placeholder: Test operational vs. DP representation consistency."""
-        pytest.skip("DP representation not yet implemented")
-
-    def test_lp_vs_ga_placeholder(self):
-        """Placeholder: Cross-check LP and GA representations."""
-        pytest.skip("GA representation not yet implemented")
-
-
-# Helper functions for future LP-based consistency tests
-
-def solve_lp_with_fixed_decisions(linear_model, operations, dt_hours):
-    """
-    Solve LP with fixed decisions by constraining variable bounds.
-
-    This is a helper for future tests that need to verify LP solutions
-    match operational interface for the same operation sequence.
-
-    Args:
-        linear_model: LinearModel from FlexAsset
-        operations: List of (P_import, P_export) tuples
-        dt_hours: Timestep duration
-
-    Returns:
-        LP solution cost
-    """
-    # TODO: Implement when needed for full LP consistency tests
-    raise NotImplementedError("LP fixed-decision solving not yet implemented")
-
-
-def extract_soc_trajectory_from_lp_solution(solution, linear_model):
-    """
-    Extract SOC trajectory from LP solution.
-
-    Helper for comparing SOC evolution between operational and LP representations.
-
-    Args:
-        solution: LP solution dict
-        linear_model: Battery LinearModel
-
-    Returns:
-        List of SOC values over time
-    """
-    # TODO: Implement when needed for full battery LP tests
-    raise NotImplementedError("SOC extraction from LP solution not yet implemented")

@@ -53,10 +53,21 @@ class LPOptimizer:
         """
         Set the energy imbalance profile that assets must collectively satisfy.
 
+        This optimizer uses the industry standard sign convention throughout:
+            Positive imbalance = SURPLUS (excess energy available in balancing group)
+            Negative imbalance = DEFICIT (shortage, energy needed by balancing group)
+
+        The optimization minimizes total cost while satisfying the energy balance:
+            Σ(asset net_power) = - imbalance[t]  for each timestep t
+
+        Where each asset's net_power represents its contribution to handling the imbalance, e.g.:
+            - Battery charging → negative contribution (storage compensates for surplus)
+            - Battery discharging → positive contribution (provides for deficit)
+            - Market export → negative contribution (sends away surplus)
+            - Market import → positive contribution (brings in for deficit)
+
         Args:
-            imbalance: Dict mapping timestep -> power imbalance [kW].
-                      Positive = need to buy energy (deficit)
-                      Negative = can sell energy (excess)
+            imbalance: Dict mapping timestep -> power imbalance [kW] in industry standard convention.
 
         Raises:
             ValueError: If imbalance has wrong length.
@@ -154,7 +165,7 @@ class LPOptimizer:
                 var_offset += asset.n_vars
 
             constraints_eq.append(row)
-            bounds_eq.append(self.imbalance[t])
+            bounds_eq.append(-self.imbalance[t])
 
         # Convert to numpy arrays
         A_eq = np.array(constraints_eq) if constraints_eq else None

@@ -90,15 +90,15 @@ def load_imbalance_profile(filepath: str) -> Dict[int, float]:
 
     Where:
         - timestep: Integer time index (0, 1, 2, ...)
-        - imbalance_kw: Power imbalance at this timestep [kW]
-          Positive = consumed more than scheduled (need to buy)
-          Negative = consumed less than scheduled (can sell)
+        - imbalance_kw: Power imbalance [kW]
+          Positive = surplus (excess energy available)
+          Negative = deficit (shortage, energy needed)
 
     Args:
         filepath: Path to CSV file with imbalance profile.
 
     Returns:
-        Dict mapping timestep -> imbalance power [kW]
+        Dict mapping timestep -> imbalance power [kW].
     """
     imbalance = {}
 

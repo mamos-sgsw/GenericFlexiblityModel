@@ -94,11 +94,9 @@ def load_data():
         st.info("Run utils/generate_dummy_profile.py first")
         st.stop()
 
-    # Load imbalance profile (automatically converts from industry standard)
+    # Load imbalance profile (industry standard convention)
     # Industry convention: positive=surplus (excess), negative=deficit (shortage)
-    # LP internal convention: positive=deficit, negative=surplus
-    # The negation happens in load_imbalance_profile with negate_for_industry_standard=True
-    imbalance = load_imbalance_profile(str(profile_file), negate_for_industry_standard=True)
+    imbalance = load_imbalance_profile(str(profile_file))
 
     return p_buy, p_sell, imbalance
 

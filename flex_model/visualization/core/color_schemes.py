@@ -271,23 +271,23 @@ class ColorScheme:
         # BATTERY OPERATION COLORS
         # =====================================================================
         # Discharge: Battery providing power (generating value) → Green
-        self.battery_discharge_color = palette.green_700_alpha
+        self.battery_discharge_color = palette.yellow_700
 
         # Charge: Battery consuming power (storing energy) → Yellow
-        self.battery_charge_color = palette.blue_700_alpha
+        self.battery_charge_color = palette.yellow_300
 
         # SOC: Neutral state indicator → Blue
-        self.battery_soc_color = palette.blue_500
+        self.battery_soc_color = palette.yellow_500
 
         # =====================================================================
         # MARKET OPERATION COLORS
         # =====================================================================
         # Import: Buying from market (cost) → Blue (neutral operation)
         # Note: We use blue instead of red to distinguish operation from cost
-        self.market_import_color = palette.blue_500_alpha
+        self.market_import_color = palette.blue_700
 
         # Export: Selling to market (revenue) → Green
-        self.market_export_color = palette.green_500_alpha
+        self.market_export_color = palette.blue_300
 
         # Buy Price: Price signal for importing (cost indicator) → Red
         self.market_buy_price_color = palette.red_500

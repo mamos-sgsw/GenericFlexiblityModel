@@ -894,8 +894,8 @@ class BatteryFlex(FlexAsset):
         power_indices = {}
         for t in range(n_timesteps):
             power_indices[t] = [
-                (t, 1.0),  # P_charge contributes +1.0 (import)
-                (n_timesteps + t, -1.0),  # P_discharge contributes -1.0 (export)
+                (t, -1.0),  # P_charge contributes -1.0 (export from bg-perspective)
+                (n_timesteps + t, 1.0),  # P_discharge contributes +1.0 (import from bg-perspective)
             ]
 
         return LinearModel(

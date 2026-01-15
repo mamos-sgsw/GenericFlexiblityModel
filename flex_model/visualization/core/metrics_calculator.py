@@ -11,6 +11,8 @@ from __future__ import annotations
 from typing import Dict, Any, TYPE_CHECKING
 import numpy as np
 
+from flex_model.settings import DT_HOURS
+
 if TYPE_CHECKING:
     from flex_model.visualization.core.result_processor import OptimizationResult
 
@@ -71,7 +73,7 @@ class EconomicMetrics:
 
         # Calculate annual operational cost with FlexAssets
         # Scale optimization cost to annual (optimization may be for shorter period)
-        optimization_hours = result.n_timesteps * result.dt_hours
+        optimization_hours = result.n_timesteps * DT_HOURS
         hours_per_year = 8760
         annual_optimized_cost = result.get_total_cost() * (hours_per_year / optimization_hours)
 
@@ -126,7 +128,7 @@ class EconomicMetrics:
                     total_investment += c_inv * capacity
 
         # Calculate annual savings
-        optimization_hours = result.n_timesteps * result.dt_hours
+        optimization_hours = result.n_timesteps * DT_HOURS
         hours_per_year = 8760
         annual_optimized_cost = result.get_total_cost() * (hours_per_year / optimization_hours)
         annual_savings = baseline_cost - annual_optimized_cost
@@ -186,7 +188,7 @@ class EconomicMetrics:
                     total_investment += c_inv * capacity
 
         # Calculate annual savings
-        optimization_hours = result.n_timesteps * result.dt_hours
+        optimization_hours = result.n_timesteps * DT_HOURS
         hours_per_year = 8760
         annual_optimized_cost = result.get_total_cost() * (hours_per_year / optimization_hours)
         annual_savings = baseline_cost - annual_optimized_cost
@@ -243,7 +245,7 @@ class EconomicMetrics:
                     total_investment += c_inv * capacity
 
         # Calculate annual operational cost and throughput
-        optimization_hours = result.n_timesteps * result.dt_hours
+        optimization_hours = result.n_timesteps * DT_HOURS
         hours_per_year = 8760
         annual_cost = result.get_total_cost() * (hours_per_year / optimization_hours)
 
@@ -311,7 +313,7 @@ class EconomicMetrics:
                     total_investment += c_inv * capacity
 
         # Calculate annual optimized cost
-        optimization_hours = result.n_timesteps * result.dt_hours
+        optimization_hours = result.n_timesteps * DT_HOURS
         hours_per_year = 8760
         annual_optimized_cost = result.get_total_cost() * (hours_per_year / optimization_hours)
 
@@ -404,7 +406,7 @@ class EconomicMetrics:
                     total_investment += c_inv * capacity
 
         # Calculate annual savings
-        optimization_hours = result.n_timesteps * result.dt_hours
+        optimization_hours = result.n_timesteps * DT_HOURS
         hours_per_year = 8760
         annual_optimized_cost = result.get_total_cost() * (hours_per_year / optimization_hours)
         annual_savings = baseline_cost - annual_optimized_cost
@@ -506,7 +508,7 @@ class EconomicMetrics:
         }
 
         # Calculate annual scaling factor
-        optimization_hours = result.n_timesteps * result.dt_hours
+        optimization_hours = result.n_timesteps * DT_HOURS
         hours_per_year = 8760
         annual_scale = hours_per_year / optimization_hours
 
@@ -608,7 +610,7 @@ class EconomicMetrics:
             >>> print(f"Cost varies between {daily['statistics']['min']:.0f} and {daily['statistics']['max']:.0f} EUR/day")
         """
         # Calculate timesteps per day
-        timesteps_per_day = int(24.0 / result.dt_hours)
+        timesteps_per_day = int(24.0 / DT_HOURS)
         num_days = result.n_timesteps // timesteps_per_day
 
         if num_days == 0:
@@ -761,7 +763,7 @@ class EconomicMetrics:
                     current_investment += c_inv * capacity
 
         # Calculate annual savings (constant across all scenarios)
-        optimization_hours = result.n_timesteps * result.dt_hours
+        optimization_hours = result.n_timesteps * DT_HOURS
         hours_per_year = 8760
         annual_optimized_cost = result.get_total_cost() * (hours_per_year / optimization_hours)
         annual_savings = baseline_cost - annual_optimized_cost

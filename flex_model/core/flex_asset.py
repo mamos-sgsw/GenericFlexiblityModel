@@ -90,10 +90,10 @@ Market options (may not need FlexUnit):
 IMPLEMENTATION REQUIREMENTS FOR SUBCLASSES
 -------------------------------------------
 Abstract methods that MUST be implemented:
-    - evaluate_operation(t, dt_hours, P_grid_import, P_grid_export):
+    - evaluate_operation(t, P_grid_import, P_grid_export):
         Check feasibility and calculate cost WITHOUT modifying state.
 
-    - execute_operation(t, dt_hours, P_grid_import, P_grid_export):
+    - execute_operation(t, P_grid_import, P_grid_export):
         Execute the operation, updating physical state and tracking metrics.
 
 Typical implementation pattern:
@@ -120,7 +120,7 @@ FlexAsset communicates with CostModel via two data structures:
     Example: {'soc': 0.7, 'E_plus': 30.0, 'E_minus': 70.0}
 
 2. activation: Operational decision
-    Example: {'P_grid_import': 20.0, 'P_grid_export': 0.0, 'dt_hours': 0.25}
+    Example: {'P_grid_import': 20.0, 'P_grid_export': 0.0}
 
 The structure of these is agreed between FlexAsset and CostModel implementations.
 The base classes (FlexUnit, CostModel, FlexAsset) don't dictate the structure,

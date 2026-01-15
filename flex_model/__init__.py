@@ -21,7 +21,7 @@ Quick start:
 
     # Initialize and operate
     battery.reset(E_plus_init=50.0, E_minus_init=50.0)
-    result = battery.evaluate_operation(t=0, dt_hours=0.25, P_draw=30.0, P_inject=0.0)
+    result = battery.evaluate_operation(t=0, P_draw=30.0, P_inject=0.0)
 """
 
 __version__ = "0.1.0"

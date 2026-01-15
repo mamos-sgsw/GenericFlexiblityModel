@@ -164,9 +164,8 @@ def run_scenario():
 
             if abs(imb_remaining) > 0.01:  # Small tolerance
                 # Settle remaining with market
-                market_result = market.evaluate_operation(t=t, dt_hours=DT_HOURS,
-                                                         P_grid_import=imb_remaining, P_grid_export=0)
-                market.execute_operation(t=t, dt_hours=DT_HOURS, P_grid_import=imb_remaining, P_grid_export=0)
+                market_result = market.evaluate_operation(t=t,P_grid_import=imb_remaining, P_grid_export=0)
+                market.execute_operation(t=t, P_grid_import=imb_remaining, P_grid_export=0)
                 cost_battery_scenario += market_result['cost']
                 market_backup_count += 1
 
@@ -199,9 +198,8 @@ def run_scenario():
 
             if abs(imb_remaining) > 0.01:
                 # Sell remaining to market
-                market_result = market.evaluate_operation(t=t, dt_hours=DT_HOURS,
-                                                         P_grid_import=0, P_grid_export=abs(imb_remaining))
-                market.execute_operation(t=t, dt_hours=DT_HOURS, P_grid_import=0, P_grid_export=abs(imb_remaining))
+                market_result = market.evaluate_operation(t=t, P_grid_import=0, P_grid_export=abs(imb_remaining))
+                market.execute_operation(t=t, P_grid_import=0, P_grid_export=abs(imb_remaining))
                 cost_battery_scenario += market_result['cost']
                 market_backup_count += 1
 
@@ -233,13 +231,13 @@ def run_scenario():
 
         if imb_kw > 0:
             # Buy from market
-            result = market.evaluate_operation(t=t, dt_hours=DT_HOURS, P_grid_import=imb_kw, P_grid_export=0)
-            market.execute_operation(t=t, dt_hours=DT_HOURS, P_grid_import=imb_kw, P_grid_export=0)
+            result = market.evaluate_operation(t=t, P_grid_import=imb_kw, P_grid_export=0)
+            market.execute_operation(t=t, P_grid_import=imb_kw, P_grid_export=0)
             cost_market_scenario += result['cost']
         else:
             # Sell to market
-            result = market.evaluate_operation(t=t, dt_hours=DT_HOURS, P_grid_import=0, P_grid_export=abs(imb_kw))
-            market.execute_operation(t=t, dt_hours=DT_HOURS, P_grid_import=0, P_grid_export=abs(imb_kw))
+            result = market.evaluate_operation(t=t, P_grid_import=0, P_grid_export=abs(imb_kw))
+            market.execute_operation(t=t, P_grid_import=0, P_grid_export=abs(imb_kw))
             cost_market_scenario += result['cost']
 
     print(f"  > All imbalances settled with TSO")

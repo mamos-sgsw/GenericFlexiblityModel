@@ -40,7 +40,7 @@ class BatteryFlex(FlexAsset):
     def evaluate_operation(self, ...): ...
     def execute_operation(self, ...): ...
 
-    def get_linear_model(self, n_timesteps, dt_hours):
+    def get_linear_model(self, n_timesteps):
         """Get LP representation - all logic inline."""
         # 100+ lines of matrix construction...
         ...
@@ -57,14 +57,14 @@ flex_model/representations/
 └── dp_builder.py          # DPModelBuilder
 ```
 
-**2. Extract representation logic:**
+**2. Extract of the representation logic:**
 ```python
 # flex_model/representations/linear_builder.py
 class LinearModelBuilder:
     """Builds LinearModel representation from FlexAssets."""
 
     @staticmethod
-    def build_battery(battery: BatteryFlex, n_timesteps: int, dt_hours: float) -> LinearModel:
+    def build_battery(battery: BatteryFlex, n_timesteps: int) -> LinearModel:
         """
         Convert battery to LP matrix representation.
 
@@ -83,6 +83,7 @@ class LinearModelBuilder:
             - Minimize: sum_t [degradation_cost * throughput + energy_cost]
         """
         import numpy as np
+        from flex_model.settings import DT_HOURS as dt
 
         # All the detailed matrix construction logic here...
         # This keeps the FlexAsset class clean while preserving all implementation details
@@ -103,8 +104,8 @@ class LinearModelBuilder:
         cost_coefficients = np.zeros(n_vars)
         for t in range(n_timesteps):
             # Degradation cost on throughput
-            cost_coefficients[t] = battery.cost_model.p_int * dt_hours  # P_charge
-            cost_coefficients[n_timesteps + t] = battery.cost_model.p_int * dt_hours  # P_discharge
+            cost_coefficients[t] = battery.cost_model.p_int * dt  # P_charge
+            cost_coefficients[n_timesteps + t] = battery.cost_model.p_int * dt  # P_discharge
 
         # Constraints: Energy balance, initial SOC, etc.
         # ... (detailed matrix construction)
@@ -124,7 +125,7 @@ class LinearModelBuilder:
         )
 
     @staticmethod
-    def build_market(market: BalancingMarketFlex, n_timesteps: int, dt_hours: float) -> LinearModel:
+    def build_market(market: BalancingMarketFlex, n_timesteps: int) -> LinearModel:
         """Convert market settlement to LP representation."""
         # Market-specific LP construction...
         ...
@@ -138,11 +139,11 @@ class BatteryFlex(FlexAsset):
     # OPERATIONAL INTERFACE (Core - always required)
     # ============================================================================
 
-    def evaluate_operation(self, t, dt_hours, P_grid_import, P_grid_export):
+    def evaluate_operation(self, t, P_grid_import, P_grid_export):
         """Evaluate operation feasibility and cost without modifying state."""
         ...
 
-    def execute_operation(self, t, dt_hours, P_grid_import, P_grid_export):
+    def execute_operation(self, t, P_grid_import, P_grid_export):
         """Execute operation and update internal state."""
         ...
 
@@ -162,7 +163,7 @@ class BatteryFlex(FlexAsset):
     # OPTIMIZATION REPRESENTATIONS (For different solver types)
     # ============================================================================
 
-    def get_linear_model(self, n_timesteps: int, dt_hours: float) -> LinearModel:
+    def get_linear_model(self, n_timesteps: int) -> LinearModel:
         """
         Convert to linear programming representation.
 
@@ -172,9 +173,9 @@ class BatteryFlex(FlexAsset):
             LinearModel with decision variables, constraints, and costs in matrix form.
         """
         from flex_model.representations import LinearModelBuilder
-        return LinearModelBuilder.build_battery(self, n_timesteps, dt_hours)
+        return LinearModelBuilder.build_battery(self, n_timesteps)
 
-    def get_ga_encoding(self, n_timesteps: int, dt_hours: float):
+    def get_ga_encoding(self, n_timesteps: int):
         """
         Convert to genetic algorithm representation.
 
@@ -184,9 +185,9 @@ class BatteryFlex(FlexAsset):
             GAModel with chromosome encoding, fitness function, and constraint checkers.
         """
         from flex_model.representations import GAModelBuilder
-        return GAModelBuilder.build_battery(self, n_timesteps, dt_hours)
+        return GAModelBuilder.build_battery(self, n_timesteps)
 
-    def get_dp_model(self, n_timesteps: int, dt_hours: float):
+    def get_dp_model(self, n_timesteps: int):
         """
         Convert to dynamic programming representation.
 
@@ -196,7 +197,7 @@ class BatteryFlex(FlexAsset):
             DPModel with state space, action space, transition function, and reward function.
         """
         from flex_model.representations import DPModelBuilder
-        return DPModelBuilder.build_battery(self, n_timesteps, dt_hours)
+        return DPModelBuilder.build_battery(self, n_timesteps)
 ```
 
 ### Benefits
@@ -263,7 +264,6 @@ class TestBatteryModelConsistency:
         # Setup
         battery = create_test_battery()
         n_timesteps = 10
-        dt_hours = 0.25
 
         # Define fixed operation sequence
         operations = [
@@ -277,18 +277,18 @@ class TestBatteryModelConsistency:
         battery.reset(E_plus_init=50.0, E_minus_init=50.0)
         total_cost_operational = 0.0
         for t, (P_import, P_export) in enumerate(operations):
-            result = battery.evaluate_operation(t, dt_hours, P_import, P_export)
+            result = battery.evaluate_operation(t, P_import, P_export)
             assert result['feasible'], f"Operation at t={t} should be feasible"
             total_cost_operational += result['cost']
-            battery.execute_operation(t, dt_hours, P_import, P_export)
+            battery.execute_operation(t, P_import, P_export)
 
         # Method 2: Apply through LP (with fixed decisions)
-        linear_model = battery.get_linear_model(n_timesteps, dt_hours)
+        linear_model = battery.get_linear_model(n_timesteps)
 
         # Construct LP problem with fixed decisions
         # (Set bounds to force the same operation sequence)
         total_cost_lp = compute_lp_cost_for_fixed_operations(
-            linear_model, operations, dt_hours
+            linear_model, operations
         )
 
         # Assert equivalence
@@ -362,14 +362,13 @@ def test_balancing_market_single_timestep():
     # Operation: Import 40 kW for 15 minutes
     P_import = 40.0
     P_export = 0.0
-    dt_hours = 0.25
 
     # Method 1: Operational interface
-    result = market.evaluate_operation(0, dt_hours, P_import, P_export)
+    result = market.evaluate_operation(0, P_import, P_export)
     cost_operational = result['cost']
 
     # Method 2: Linear model
-    linear_model = market.get_linear_model(n_timesteps=1, dt_hours=dt_hours)
+    linear_model = market.get_linear_model(n_timesteps=1)
 
     # LP cost = p_buy * P_import * dt
     cost_lp = linear_model.cost_coefficients[0] * P_import
@@ -394,5 +393,5 @@ As the framework evolves, this document will expand to cover:
 ---
 
 **Document version:** 1.0
-**Last updated:** 2026-01-05
+**Last updated:** 2026-01-15
 **Maintainer:** Mathias Niffeler

@@ -92,7 +92,7 @@ TYPICAL WORKFLOW
 
 3. Evaluate step cost:
     flex_state = {'soc': 0.7, 'E_plus': 30.0, 'E_minus': 70.0}
-    activation = {'P_grid_import': 20.0, 'P_grid_export': 0.0, 'dt_hours': 0.25}
+    activation = {'P_grid_import': 20.0, 'P_grid_export': 0.0}
     cost_t = cost.step_cost(t=10, flex_state=flex_state, activation=activation)
 
 4. Aggregate total cost:
@@ -135,14 +135,13 @@ EXAMPLE: Battery Cost Model
         def step_cost(self, t, flex_state, activation):
             P_import = activation['P_grid_import']
             P_export = activation['P_grid_export']
-            dt_hours = activation['dt_hours']
 
             # Internal degradation cost
-            throughput = (P_import + P_export) * dt_hours
+            throughput = (P_import + P_export) * dt
             cost_internal = throughput * self.p_int(t)
 
             # External energy cost
-            E_net = (P_import - P_export) * dt_hours
+            E_net = (P_import - P_export) * dt
             if E_net > 0:  # net import (buying)
                 cost_energy = E_net * self.p_E_buy(t)
             else:  # net export (selling)
@@ -279,7 +278,7 @@ class CostModel(ABC):
             ValueError: If any required keys are missing from activation dict.
 
         Example:
-            >>> self._validate_activation_keys(activation, {'P_grid_import', 'P_grid_export', 'dt_hours'})
+            >>> self._validate_activation_keys(activation, {'P_grid_import', 'P_grid_export'})
         """
         if not isinstance(activation, dict):
             raise TypeError(f"activation must be a dict, got {type(activation).__name__}")

@@ -12,6 +12,8 @@ Then open your browser to http://localhost:8501
 from pathlib import Path
 import sys
 
+from flex_model.settings import DT_HOURS
+
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
@@ -27,7 +29,6 @@ except ImportError:
 from flex_model.assets import BatteryUnit, BatteryCostModel, BatteryFlex
 from flex_model.assets import BalancingMarketCost, BalancingMarketFlex
 from flex_model.optimization import LPOptimizer
-from flex_model.settings import DT_HOURS
 from flex_model.visualization import LPOptimizationResult, EconomicMetrics
 from flex_model.visualization.plots import OperationalPlots, EconomicPlots
 from utils.data_loader import load_imbalance_prices, load_imbalance_profile, get_data_path
@@ -148,12 +149,10 @@ def run_optimization(
 
     battery_lm = battery.get_linear_model(
         n_timesteps=n_timesteps,
-        dt_hours=DT_HOURS,
         initial_soc=initial_soc
     )
     market_lm = market.get_linear_model(
-        n_timesteps=n_timesteps,
-        dt_hours=DT_HOURS
+        n_timesteps=n_timesteps
     )
 
     optimizer = LPOptimizer(n_timesteps=n_timesteps)
@@ -171,16 +170,14 @@ def run_optimization(
     baseline_cost, baseline_cost_annual = calculate_baseline_cost(
         imbalance=imbalance,
         p_buy=p_buy,
-        p_sell=p_sell,
-        dt_hours=DT_HOURS
+        p_sell=p_sell
     )
 
     # Wrap result
     result = LPOptimizationResult(
         lp_result=lp_result,
         assets={'BESS': battery, 'market': market},
-        imbalance=imbalance,
-        dt_hours=DT_HOURS,
+        imbalance=imbalance
     )
 
     # Calculate metrics
@@ -345,7 +342,7 @@ def main():
         # Calculate time range for sliders
         import pandas as pd
         start = pd.to_datetime(start_date)
-        end = start + pd.Timedelta(hours=result.n_timesteps * result.dt_hours)
+        end = start + pd.Timedelta(hours=result.n_timesteps * DT_HOURS)
 
         # Add date range controls
         st.subheader("Time Range Selection")
@@ -362,8 +359,8 @@ def main():
         range_start_idx, range_end_idx = time_range_idx
 
         # Calculate actual datetime range from timestep indices
-        display_start = start + pd.Timedelta(hours=range_start_idx * result.dt_hours)
-        display_end = start + pd.Timedelta(hours=range_end_idx * result.dt_hours)
+        display_start = start + pd.Timedelta(hours=range_start_idx * DT_HOURS)
+        display_end = start + pd.Timedelta(hours=range_end_idx * DT_HOURS)
 
         # Display selected range prominently
         st.markdown(f"""
@@ -568,7 +565,7 @@ def main():
                 "Optimization Status": "✓ Success" if result.is_successful() else "✗ Failed",
                 "Total Cost": f"{result.get_total_cost():.2f} CHF",
                 "Timesteps": result.n_timesteps,
-                "Time Horizon": f"{result.n_timesteps * result.dt_hours:.1f} hours",
+                "Time Horizon": f"{result.n_timesteps * DT_HOURS:.1f} hours",
             })
 
             st.subheader("Utilization Metrics")

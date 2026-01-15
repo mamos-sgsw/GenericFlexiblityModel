@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from typing import Dict, Any, List, Optional, TYPE_CHECKING
 
+from flex_model.settings import DT_HOURS
+
 if TYPE_CHECKING:
     from flex_model.visualization.core.result_processor import OptimizationResult
 
@@ -82,19 +84,18 @@ class OperationalPlots:
             try:
                 import pandas as pd
                 start = pd.to_datetime(start_date)
-                time_axis = [start + pd.Timedelta(hours=t * result.dt_hours) for t in timesteps]
+                time_axis = [start + pd.Timedelta(hours=t * DT_HOURS) for t in timesteps]
             except:
-                time_axis = [t * result.dt_hours for t in timesteps]
+                time_axis = [t * DT_HOURS for t in timesteps]
         else:
-            time_axis = [t * result.dt_hours for t in timesteps]
+            time_axis = [t * DT_HOURS for t in timesteps]
 
         # Get imbalance profile (the problem we're solving)
         imbalance_data = result.get_imbalance_profile()
         imbalance = imbalance_data['imbalance']
 
         # Convert energy [kWh] to power [kW] by dividing by timestep duration
-        dt_hours = result.dt_hours
-        imbalance_kw = [e / dt_hours for e in imbalance]
+        imbalance_kw = [e / DT_HOURS for e in imbalance]
 
         # Create figure
         fig = go.Figure()
@@ -115,10 +116,10 @@ class OperationalPlots:
 
                 for t in range(result.n_timesteps):
                     # Convert energy [kWh] to power [kW]
-                    total_charge[t] += power_data['P_charge'][t] / dt_hours
-                    total_discharge[t] += power_data['P_discharge'][t] / dt_hours
-                    total_import[t] += power_data['P_import'][t] / dt_hours
-                    total_export[t] += power_data['P_export'][t] / dt_hours
+                    total_charge[t] += power_data['P_charge'][t] / DT_HOURS
+                    total_discharge[t] += power_data['P_discharge'][t] / DT_HOURS
+                    total_import[t] += power_data['P_import'][t] / DT_HOURS
+                    total_export[t] += power_data['P_export'][t] / DT_HOURS
 
             # Add system-level traces as stacked bars
             # Positive contributions (generation/discharge/import)
@@ -262,11 +263,11 @@ class OperationalPlots:
             try:
                 import pandas as pd
                 start = pd.to_datetime(start_date)
-                time_axis = [start + pd.Timedelta(hours=t * result.dt_hours) for t in timesteps]
+                time_axis = [start + pd.Timedelta(hours=t * DT_HOURS) for t in timesteps]
             except:
-                time_axis = [t * result.dt_hours for t in timesteps]
+                time_axis = [t * DT_HOURS for t in timesteps]
         else:
-            time_axis = [t * result.dt_hours for t in timesteps]
+            time_axis = [t * DT_HOURS for t in timesteps]
 
         # Create figure
         fig = go.Figure()
@@ -397,11 +398,11 @@ class OperationalPlots:
             try:
                 import pandas as pd
                 start = pd.to_datetime(start_date)
-                time_axis = [start + pd.Timedelta(hours=t * result.dt_hours) for t in timesteps]
+                time_axis = [start + pd.Timedelta(hours=t * DT_HOURS) for t in timesteps]
             except:
-                time_axis = [t * result.dt_hours for t in timesteps]
+                time_axis = [t * DT_HOURS for t in timesteps]
         else:
-            time_axis = [t * result.dt_hours for t in timesteps]
+            time_axis = [t * DT_HOURS for t in timesteps]
 
         # Extract prices (assuming BalancingMarketCost model)
         if hasattr(market, 'cost_model'):

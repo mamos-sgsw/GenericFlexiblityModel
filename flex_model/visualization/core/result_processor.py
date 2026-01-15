@@ -33,14 +33,12 @@ class OptimizationResult(ABC):
     Attributes:
         assets: Dict mapping asset_name -> FlexAsset instance
         imbalance: Dict mapping timestep -> imbalance power [kW]
-        dt_hours: Timestep duration [h]
         n_timesteps: Number of timesteps in optimization horizon
     """
 
     # These attributes must be set by concrete implementations
     assets: Dict[str, Any]
     imbalance: Dict[int, float]
-    dt_hours: float
     n_timesteps: int
 
     @abstractmethod

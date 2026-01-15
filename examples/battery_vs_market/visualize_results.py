@@ -130,12 +130,10 @@ def run_optimization_with_visualization():
     # Convert to linear models
     battery_lm = battery.get_linear_model(
         n_timesteps=n_timesteps,
-        dt_hours=DT_HOURS,
         initial_soc=INITIAL_SOC
     )
     market_lm = market.get_linear_model(
-        n_timesteps=n_timesteps,
-        dt_hours=DT_HOURS
+        n_timesteps=n_timesteps
     )
 
     # Create and solve optimizer
@@ -161,8 +159,7 @@ def run_optimization_with_visualization():
     baseline_cost, baseline_cost_annual = calculate_baseline_cost(
         imbalance=imbalance,
         p_buy=p_buy,
-        p_sell=p_sell,
-        dt_hours=DT_HOURS
+        p_sell=p_sell
     )
 
     days_in_scenario = len(imbalance) / (24 / DT_HOURS)
@@ -178,8 +175,7 @@ def run_optimization_with_visualization():
     result = LPOptimizationResult(
         lp_result=lp_result,
         assets={'BESS_100kWh': battery, 'imbalance_market': market},
-        imbalance=imbalance,
-        dt_hours=DT_HOURS,
+        imbalance=imbalance
     )
 
     print(f"  > {result}")

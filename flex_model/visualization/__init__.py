@@ -21,8 +21,7 @@ Usage:
     result = LPOptimizationResult(
         lp_result=optimizer.solve(),
         assets={'battery': battery, 'market': market},
-        imbalance=imbalance_profile,
-        dt_hours=0.25
+        imbalance=imbalance_profile
     )
 
     # Generate visualizations

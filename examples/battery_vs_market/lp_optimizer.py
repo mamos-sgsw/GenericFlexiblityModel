@@ -10,7 +10,6 @@ converted to linear models and aggregated.
 """
 
 from pathlib import Path
-from typing import Dict
 import sys
 
 # Add parent directory to path for imports
@@ -19,7 +18,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from flex_model.assets import BatteryUnit, BatteryCostModel, BatteryFlex
 from flex_model.assets import BalancingMarketCost, BalancingMarketFlex
 from flex_model.optimization import LPOptimizer
-from flex_model.settings import DT_HOURS
 from utils.data_loader import load_imbalance_prices, load_imbalance_profile, get_data_path
 
 
@@ -125,12 +123,10 @@ def run_scenario():
     n_timesteps = len(imbalance)
     battery_lm = battery.get_linear_model(
         n_timesteps=n_timesteps,
-        dt_hours=DT_HOURS,
         initial_soc=INITIAL_SOC
     )
     market_lm = market.get_linear_model(
-        n_timesteps=n_timesteps,
-        dt_hours=DT_HOURS
+        n_timesteps=n_timesteps
     )
 
     # Create optimizer and add assets
@@ -189,12 +185,12 @@ def run_scenario():
         imb_kw = imbalance[t]
 
         if imb_kw > 0:
-            result = market.evaluate_operation(t=t, dt_hours=DT_HOURS, P_grid_import=imb_kw, P_grid_export=0)
-            market.execute_operation(t=t, dt_hours=DT_HOURS, P_grid_import=imb_kw, P_grid_export=0)
+            result = market.evaluate_operation(t=t, P_grid_import=imb_kw, P_grid_export=0)
+            market.execute_operation(t=t, P_grid_import=imb_kw, P_grid_export=0)
             cost_market_scenario += result['cost']
         else:
-            result = market.evaluate_operation(t=t, dt_hours=DT_HOURS, P_grid_import=0, P_grid_export=abs(imb_kw))
-            market.execute_operation(t=t, dt_hours=DT_HOURS, P_grid_import=0, P_grid_export=abs(imb_kw))
+            result = market.evaluate_operation(t=t, P_grid_import=0, P_grid_export=abs(imb_kw))
+            market.execute_operation(t=t, P_grid_import=0, P_grid_export=abs(imb_kw))
             cost_market_scenario += result['cost']
 
     print(f"  > All imbalances settled with TSO")
